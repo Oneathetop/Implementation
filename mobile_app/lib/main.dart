@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
 
-const String apiUrl = 'http://192.168.1.2:8000/predict';
+const String apiUrl = 'http://127.0.0.1:8000/predict';
 
 void main() {
   runApp(const QRXAIApp());
