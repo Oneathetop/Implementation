@@ -18,6 +18,26 @@ def load_dataset():
 
     return df
 
+def validate_dataset(df):
+    """
+    Validate that the dataset contains the required columns.
+    """
+
+    print("\nValidating dataset...")
+
+    required_columns = ["URL", "label"]
+
+    missing_columns = [
+        column for column in required_columns
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"Missing required columns: {missing_columns}"
+        )
+
+    print("Dataset validation passed.")
 
 def main():
     """
@@ -29,6 +49,8 @@ def main():
     print("=" * 60)
 
     df = load_dataset()
+
+    validate_dataset(df)
 
 
 if __name__ == "__main__":
