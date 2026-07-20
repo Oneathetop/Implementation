@@ -2,10 +2,12 @@ from ml.feature_extractor import extract_features
 
 TEST_URLS = [
     "https://google.com",
-    "https://example.com/login",
-    "https://example.com/login?id=1",
-    "https://example.com/login?id=1&token=abc",
-    "https://example.com/login?id=1&token=abc&redirect=test"
+
+    "https://example.com/login#home",
+
+    "https://paypal.com/account#verify",
+
+    "https://example.com/#payment",
 ]
 
 for url in TEST_URLS:

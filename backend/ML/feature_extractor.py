@@ -5,22 +5,48 @@ from urllib.parse import urlparse
 
 SUSPICIOUS_KEYWORDS = {
     "login",
+    "signin",
     "verify",
-    "account",
+    "verification",
     "secure",
     "update",
-    "bank",
+    "account",
     "password",
-    "signin",
-    "confirm",
-    "wallet",
+
     "payment",
-    "paypal",
-    "microsoft",
-    "apple",
-    "amazon",
-    "google",
-    "facebook",
+    "pay",
+    "wallet",
+    "invoice",
+    "billing",
+    "refund",
+
+    "bank",
+    "banking",
+
+    "confirm",
+    "authenticate",
+    "auth",
+    "otp",
+    "2fa",
+
+    "reset",
+
+    "gift",
+    "reward",
+    "bonus",
+    "coupon",
+    "promo",
+
+    "delivery",
+    "parcel",
+    "shipment",
+    "tracking",
+
+    "support",
+    "customer"
+    "qr",
+    "scan",
+    "crypto",
 }
 
 URL_SHORTENERS = {
@@ -50,6 +76,51 @@ SUSPICIOUS_TLDS = {
     "ga",
     "zip",
     "country",
+}
+
+BRAND_KEYWORDS = [
+    "paypal",
+    "amazon",
+    "apple",
+    "google",
+    "microsoft",
+    "facebook",
+    "instagram",
+    "linkedin",
+    "netflix",
+    "steam",
+
+    "visa",
+    "mastercard",
+    "stripe",
+    "wise",
+    "payoneer",
+
+    "binance",
+    "coinbase",
+
+    "icloud",
+    "office365",
+    "outlook",
+
+    "dhl",
+    "fedex",
+    "ups"
+]
+
+SUSPICIOUS_EXTENSIONS = {
+    ".exe",
+    ".apk",
+    ".zip",
+    ".rar",
+    ".7z",
+    ".jar",
+    ".msi",
+    ".bat",
+    ".cmd",
+    ".scr",
+    ".js",
+    ".vbs"
 }
 
 def extract_url_length(url):
@@ -166,15 +237,24 @@ def extract_subdomain_count(parsed_url):
 
 def extract_keyword_count(url):
     """
-    Count suspicious phishing-related keywords appearing in the URL.
+    Count phishing-related keywords using token matching.
     """
 
     url = url.lower()
 
-    return sum(
-        keyword in url
+    # Split the URL into tokens
+    tokens = re.split(r'[^a-zA-Z0-9]+', url)
+
+    # Remove empty strings
+    tokens = [token for token in tokens if token]
+
+    matched = [
+        keyword
         for keyword in SUSPICIOUS_KEYWORDS
-    )
+        if keyword in tokens
+    ]
+
+    return len(matched)
 
 def extract_url_shortener(parsed_url):
     """
@@ -322,6 +402,76 @@ def extract_suspicious_character_ratio(url):
 
     return round(count / len(url), 4)
 
+def extract_brand_keyword_count(url):
+    """
+    Count trusted brand names using token matching.
+    """
+
+    url = url.lower()
+
+    tokens = re.split(r'[^a-zA-Z0-9]+', url)
+    tokens = [token for token in tokens if token]
+
+    matched = [
+        keyword
+        for keyword in BRAND_KEYWORDS
+        if keyword in tokens
+    ]
+
+    return len(matched)
+
+def extract_at_symbol_presence(url):
+    """
+    Detect whether the URL contains '@'.
+
+    Returns
+    -------
+    int
+        1 if '@' exists, otherwise 0.
+    """
+
+    return int("@" in url)
+
+def extract_double_slash_in_path(parsed_url):
+    """
+    Detect whether the URL path contains a double slash.
+
+    Returns
+    -------
+    int
+        1 if the path contains "//", otherwise 0.
+    """
+
+    return int("//" in parsed_url.path)
+
+def extract_slash_count(parsed_url):
+    """
+    Count the number of '/' characters in the URL path.
+    """
+
+    return parsed_url.path.count("/")
+
+def extract_suspicious_file_extension(parsed_url):
+    """
+    Detect suspicious downloadable file extensions in the URL path.
+
+    Returns
+    -------
+    int
+        1 if a suspicious extension is present, otherwise 0.
+    """
+
+    path = parsed_url.path.lower()
+
+    return int(any(path.endswith(ext) for ext in SUSPICIOUS_EXTENSIONS))
+
+def extract_fragment_presence(parsed_url):
+    """
+    Return 1 if the URL contains a fragment (#), otherwise 0.
+    """
+
+    return int(bool(parsed_url.fragment))
+
 def extract_features(url):
     """
     Extract lexical features from a URL.
@@ -335,6 +485,9 @@ def extract_features(url):
         "url_length": extract_url_length(url),
         "domain_length": extract_domain_length(parsed),
         "path_length": extract_path_length(parsed),
+        "slash_count": extract_slash_count(parsed),
+        "double_slash_in_path": extract_double_slash_in_path(parsed),
+        "suspicious_file_extension": extract_suspicious_file_extension(parsed),
         "subdomain_count": extract_subdomain_count(parsed),
         "query_parameter_count": extract_query_parameter_count(parsed),
 
@@ -348,6 +501,7 @@ def extract_features(url):
         "max_consecutive_digits": extract_max_consecutive_digits(url),
         "hyphen_count": extract_hyphen_count(url),
         "special_character_count": extract_special_character_count(url),
+        "at_symbol_presence": extract_at_symbol_presence(url),
         "suspicious_character_ratio": extract_suspicious_character_ratio(url),
         "url_encoding_count": extract_url_encoding_count(url),
         "entropy": extract_entropy(url),
@@ -355,9 +509,11 @@ def extract_features(url):
 
         # Phishing Indicators
         "keyword_count": extract_keyword_count(url),
+        "brand_keyword_count": extract_brand_keyword_count(url),
         "url_shortener": extract_url_shortener(parsed),
         "port_number": extract_port_number(parsed),
         "suspicious_tld": extract_suspicious_tld(parsed),
+        "fragment_present": extract_fragment_presence(parsed),    
     }
 
     return features
