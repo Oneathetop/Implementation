@@ -2,10 +2,10 @@ from ml.feature_extractor import extract_features
 
 TEST_URLS = [
     "https://google.com",
-    "https://example.xyz",
-    "https://login-secure.top/account",
-    "https://malicious.zip",
-    "https://university.edu",
+    "https://example.com/login",
+    "https://example.com/login?id=1",
+    "https://example.com/login?id=1&token=abc",
+    "https://example.com/login?id=1&token=abc&redirect=test"
 ]
 
 for url in TEST_URLS:

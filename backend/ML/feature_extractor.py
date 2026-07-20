@@ -279,6 +279,49 @@ def extract_suspicious_tld(parsed_url):
 
     return int(tld in SUSPICIOUS_TLDS)
 
+def extract_consecutive_special_character_count(url):
+    """
+    Count the maximum consecutive occurrence
+    of suspicious special characters.
+    """
+
+    cleaned_url = re.sub(r"^https?://", "", url)
+
+    matches = re.findall(r"[@?=&%_\-./]{2,}", cleaned_url)
+
+    if not matches:
+        return 0
+
+    return max(len(match) for match in matches)
+
+def extract_max_consecutive_digits(url):
+    """
+    Return the maximum number of consecutive digits
+    appearing in the URL.
+    """
+
+    matches = re.findall(r"\d+", url)
+
+    if not matches:
+        return 0
+
+    return max(len(match) for match in matches)
+
+def extract_suspicious_character_ratio(url):
+    """
+    Return the ratio of suspicious characters to
+    total URL length.
+    """
+
+    suspicious_characters = "@?=&%_-"
+
+    count = sum(url.count(character) for character in suspicious_characters)
+
+    if len(url) == 0:
+        return 0.0
+
+    return round(count / len(url), 4)
+
 def extract_features(url):
     """
     Extract lexical features from a URL.
@@ -302,10 +345,13 @@ def extract_features(url):
         # Character Count Features
         "dot_count": extract_dot_count(url),
         "digit_count": extract_digit_count(url),
+        "max_consecutive_digits": extract_max_consecutive_digits(url),
         "hyphen_count": extract_hyphen_count(url),
         "special_character_count": extract_special_character_count(url),
+        "suspicious_character_ratio": extract_suspicious_character_ratio(url),
         "url_encoding_count": extract_url_encoding_count(url),
         "entropy": extract_entropy(url),
+        "consecutive_special_character_count": extract_consecutive_special_character_count(url),
 
         # Phishing Indicators
         "keyword_count": extract_keyword_count(url),
