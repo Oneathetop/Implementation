@@ -19,6 +19,8 @@ RAW_DATASET = DATASET_RAW / "PhiUSIIL_Phishing_URL_Dataset.xlsx"
 
 CLEAN_DATASET = DATASET_PROCESSED / "clean_urls.csv"
 
+FEATURE_DATASET = DATASET_PROCESSED / "feature_dataset.csv"
+
 # --------------------------------------------------
 # ML Parameters
 
