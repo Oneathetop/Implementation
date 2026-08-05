@@ -2,6 +2,10 @@ import pandas as pd
 
 from sklearn.model_selection import train_test_split
 
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+
 from ml.config import (
     FEATURE_DATASET,
     FEATURE_NAMES,
@@ -22,6 +26,11 @@ def main():
     X_train, X_test, y_train, y_test = split_dataset(
         X,
         y,
+    )
+
+    logistic_model = train_logistic_regression(
+        X_train,
+        y_train,
     )
 
 def load_dataset():
@@ -75,6 +84,24 @@ def split_dataset(
     print(f"Testing samples: {len(X_test)}")
 
     return X_train, X_test, y_train, y_test
+
+def train_logistic_regression(X_train, y_train):
+
+    print("\nTraining Logistic Regression...")
+
+    model = Pipeline([
+        ("scaler", StandardScaler()),
+        ("classifier", LogisticRegression(
+            max_iter=1000,
+            random_state=RANDOM_STATE
+        ))
+    ])
+
+    model.fit(X_train, y_train)
+
+    print("Logistic Regression training completed.")
+
+    return model
 
 if __name__ == "__main__":
     main()
