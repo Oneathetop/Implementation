@@ -190,23 +190,35 @@ def load_url_dataset():
 # Dataset Validation
 # --------------------------------------------------
 
-def verify_row_alignment(
-    feature_df,
-    url_df,
-):
+def verify_row_alignment(feature_df, url_df):
 
     print("\nVerifying dataset alignment...")
 
+    # 1. Row count check
     if len(feature_df) != len(url_df):
-
         raise ValueError(
             "Feature dataset and URL dataset "
             "have different numbers of rows."
         )
 
+    print("PASS: Row counts match.")
+
+    # 2. Label alignment check
+    if not feature_df["label"].equals(url_df["label"]):
+        mismatch_count = (
+            feature_df["label"] != url_df["label"]
+        ).sum()
+
+        raise ValueError(
+            f"Label alignment failure: "
+            f"{mismatch_count} rows have different labels."
+        )
+
+    print("PASS: Labels are aligned row-by-row.")
+
     print(
-        "Feature dataset and URL dataset "
-        "row counts match."
+        "PASS: Feature dataset and cleaned URL dataset "
+        "are aligned for root-domain grouping."
     )
 
 
@@ -230,9 +242,9 @@ def create_domain_groups(
     )
 
     print(
-        f"URLs with root domain: "
-        f"{groups.notna().sum()}"
-    )
+    f"URLs with valid root domain: "
+    f"{(groups != 'unknown').sum()}"
+)
 
     print(
         f"URLs with missing/unknown domain: "
