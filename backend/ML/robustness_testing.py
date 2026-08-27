@@ -2,6 +2,8 @@ import pandas as pd
 import tldextract
 import numpy as np
 
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -24,12 +26,35 @@ from ml.config import (
     RANDOM_STATE,
 )
 
+from ml.feature_extractor import extract_features
+
+
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+ROBUSTNESS_SAMPLE_SIZE = 200
+
+ROBUSTNESS_RESULTS_FILE = (
+    "datasets/processed/robustness_results.csv"
+)
+
 
 # ============================================================
 # ROOT DOMAIN
 # ============================================================
 
 def extract_root_domain(url):
+    """
+    Extract the registrable/root domain from a URL.
+
+    Examples:
+        https://www.google.com
+            -> google.com
+
+        https://login.google.com
+            -> google.com
+    """
 
     extracted = tldextract.extract(url)
 
@@ -81,6 +106,25 @@ def verify_alignment(feature_df, url_df):
     print("\nVerifying dataset alignment...")
 
     # --------------------------------------------------------
+    # Required columns
+    # --------------------------------------------------------
+
+    if "label" not in feature_df.columns:
+        raise ValueError(
+            "Feature dataset does not contain 'label'."
+        )
+
+    if "label" not in url_df.columns:
+        raise ValueError(
+            "Cleaned URL dataset does not contain 'label'."
+        )
+
+    if "URL" not in url_df.columns:
+        raise ValueError(
+            "Cleaned URL dataset does not contain 'URL'."
+        )
+
+    # --------------------------------------------------------
     # Row count
     # --------------------------------------------------------
 
@@ -111,18 +155,35 @@ def verify_alignment(feature_df, url_df):
             f"{mismatch_count} rows differ."
         )
 
-    print("PASS: Labels are aligned row-by-row.")
+    print(
+        "PASS: Labels are aligned row-by-row."
+    )
+
+    # --------------------------------------------------------
+    # Feature schema
+    # --------------------------------------------------------
+
+    missing_features = [
+        feature
+        for feature in FEATURE_NAMES
+        if feature not in feature_df.columns
+    ]
+
+    if missing_features:
+
+        raise ValueError(
+            "Feature dataset is missing required "
+            f"model features: {missing_features}"
+        )
+
+    print(
+        "PASS: Feature dataset contains all "
+        "required model features."
+    )
 
     # --------------------------------------------------------
     # URL availability
     # --------------------------------------------------------
-
-    if "URL" not in url_df.columns:
-
-        raise ValueError(
-            "Cleaned URL dataset does not contain "
-            "the required URL column."
-        )
 
     print(
         "PASS: Original URLs available in "
@@ -130,8 +191,8 @@ def verify_alignment(feature_df, url_df):
     )
 
     print(
-        "PASS: Feature dataset and cleaned URL dataset "
-        "are aligned by row count and label."
+        "PASS: Feature dataset and cleaned URL "
+        "dataset are aligned by row count and label."
     )
 
 
@@ -252,114 +313,50 @@ def create_random_forest_model():
 
 
 # ============================================================
-# FEATURE EXTRACTION
-# ============================================================
-
-def extract_features_from_url(url):
-
-    extracted = tldextract.extract(url)
-
-    domain = extracted.domain or ""
-    suffix = extracted.suffix or ""
-    subdomain = extracted.subdomain or ""
-
-    domain_full = (
-        f"{domain}.{suffix}"
-        if domain and suffix
-        else domain
-    )
-
-    url_string = str(url)
-
-    features = {
-
-        "url_length":
-            len(url_string),
-
-        "https":
-            int(
-                url_string.lower().startswith(
-                    "https://"
-                )
-            ),
-
-        "domain_length":
-            len(domain_full),
-
-        "path_length":
-            len(
-                url_string.split(
-                    domain_full,
-                    1
-                )[-1]
-            ) if domain_full else 0,
-
-        "dot_count":
-            url_string.count("."),
-
-        "digit_count":
-            sum(
-                char.isdigit()
-                for char in url_string
-            ),
-
-        "hyphen_count":
-            url_string.count("-"),
-
-        "special_character_count":
-            sum(
-                not char.isalnum()
-                and char not in "/.:_-"
-                for char in url_string
-            ),
-
-        "ip_address":
-            int(
-                any(
-                    part.isdigit()
-                    for part in domain.split(".")
-                )
-                and domain.count(".") == 3
-            ),
-
-        "subdomain_count":
-            0
-            if not subdomain
-            else len(
-                subdomain.split(".")
-            ),
-    }
-
-    return features
-
-
-# ============================================================
-# FEATURE ALIGNMENT
+# FEATURE VECTOR CREATION
 # ============================================================
 
 def create_feature_vector(url):
+    """
+    Extract production features from a URL and return
+    them in exactly the same order as FEATURE_NAMES.
+    """
 
-    features = extract_features_from_url(url)
+    features = extract_features(url)
 
-    vector = {}
+    missing_features = [
+        feature
+        for feature in FEATURE_NAMES
+        if feature not in features
+    ]
 
-    for feature_name in FEATURE_NAMES:
+    if missing_features:
 
-        vector[feature_name] = features.get(
-            feature_name,
-            0
+        raise ValueError(
+            "Feature extraction mismatch. "
+            f"Missing features: {missing_features}"
         )
 
-    return vector
+    extra_features = [
+        feature
+        for feature in features
+        if feature not in FEATURE_NAMES
+    ]
+
+    if extra_features:
+
+        raise ValueError(
+            "Feature extraction mismatch. "
+            f"Unexpected features: {extra_features}"
+        )
+
+    return [
+        features[feature]
+        for feature in FEATURE_NAMES
+    ]
 
 
 def create_feature_dataframe(urls):
-
-    """
-    Convert URLs into a pandas DataFrame using
-    exactly the same feature names and order
-    used during model training.
-    """
 
     feature_rows = [
         create_feature_vector(url)
@@ -373,75 +370,201 @@ def create_feature_dataframe(urls):
 
 
 # ============================================================
+# PERTURBATION HELPERS
+# ============================================================
+
+def parse_url(url):
+    """
+    Parse URL while preserving its components.
+    """
+
+    parsed = urlsplit(url)
+
+    return parsed
+
+
+def rebuild_url(
+    parsed,
+    scheme=None,
+    netloc=None,
+    path=None,
+    query=None,
+    fragment=None,
+):
+
+    return urlunsplit((
+        scheme if scheme is not None else parsed.scheme,
+        netloc if netloc is not None else parsed.netloc,
+        path if path is not None else parsed.path,
+        query if query is not None else parsed.query,
+        fragment if fragment is not None else parsed.fragment,
+    ))
+
+
+# ============================================================
 # URL PERTURBATIONS
 # ============================================================
 
 def add_digits(url):
+    """
+    Add digits to the PATH rather than the domain.
 
-    return url + "123"
+    Example:
+        https://example.com/login
+        ->
+        https://example.com/login123
+    """
+
+    parsed = parse_url(url)
+
+    path = parsed.path
+
+    if not path:
+        path = "/"
+
+    return rebuild_url(
+        parsed,
+        path=path + "123",
+    )
 
 
 def add_https(url):
+    """
+    Convert HTTP to HTTPS.
 
-    if url.lower().startswith("https://"):
-        return None
+    Only HTTP URLs are eligible.
 
-    if url.lower().startswith("http://"):
+    HTTPS URLs are skipped because adding HTTPS to an
+    already-HTTPS URL would produce no transformation.
+    """
 
-        return (
-            "https://"
-            + url[7:]
+    parsed = parse_url(url)
+
+    if parsed.scheme.lower() == "http":
+
+        return rebuild_url(
+            parsed,
+            scheme="https",
         )
 
-    return "https://" + url
+    return None
 
 
 def add_special_characters(url):
+    """
+    Add URL-safe special characters through a legitimate
+    query parameter.
 
-    return url + "?&=%"
+    Example:
+        https://example.com
+        ->
+        https://example.com/?ref=%26%3D%25
+    """
+
+    parsed = parse_url(url)
+
+    existing_params = parse_qsl(
+        parsed.query,
+        keep_blank_values=True,
+    )
+
+    existing_params.append(
+        ("ref", "&=%")
+    )
+
+    new_query = urlencode(
+        existing_params
+    )
+
+    return rebuild_url(
+        parsed,
+        query=new_query,
+    )
 
 
 def add_suspicious_query(url):
+    """
+    Add a realistic suspicious-looking query parameter
+    while preserving the original root domain.
 
-    separator = (
-        "&"
-        if "?" in url
-        else "?"
+    Example:
+        https://example.com/login
+        ->
+        https://example.com/login?login=verify_account
+    """
+
+    parsed = parse_url(url)
+
+    existing_params = parse_qsl(
+        parsed.query,
+        keep_blank_values=True,
     )
 
-    return (
-        url
-        + separator
-        + "login=verify_account"
+    existing_params.append(
+        ("login", "verify_account")
+    )
+
+    new_query = urlencode(
+        existing_params
+    )
+
+    return rebuild_url(
+        parsed,
+        query=new_query,
     )
 
 
 def add_suspicious_subdomain(url):
+    """
+    Add a suspicious subdomain while preserving the
+    original registrable/root domain.
+
+    Example:
+        https://example.com
+        ->
+        https://secure-login.example.com
+    """
+
+    parsed = parse_url(url)
 
     extracted = tldextract.extract(url)
 
     if not extracted.domain:
         return None
 
+    if not extracted.suffix:
+
+        return None
+
     root_domain = (
         f"{extracted.domain}.{extracted.suffix}"
-        if extracted.suffix
-        else extracted.domain
     )
 
-    return (
+    suspicious_netloc = (
         "secure-login."
         + root_domain
     )
 
+    return rebuild_url(
+        parsed,
+        netloc=suspicious_netloc,
+    )
+
 
 def remove_https(url):
+    """
+    Convert HTTPS to HTTP.
 
-    if url.lower().startswith("https://"):
+    Only HTTPS URLs are eligible.
+    """
 
-        return (
-            "http://"
-            + url[8:]
+    parsed = parse_url(url)
+
+    if parsed.scheme.lower() == "https":
+
+        return rebuild_url(
+            parsed,
+            scheme="http",
         )
 
     return None
@@ -470,22 +593,76 @@ PERTURBATIONS = {
 
 
 # ============================================================
-# MODEL PREDICTION HELPER
+# PERTURBATION VALIDATION
+# ============================================================
+
+def validate_perturbation(
+    original_url,
+    perturbed_url,
+    perturbation_name,
+):
+    """
+    Validate that the perturbation actually changed the URL
+    and, where appropriate, preserved the root domain.
+    """
+
+    if perturbed_url is None:
+        return False
+
+    if not isinstance(
+        perturbed_url,
+        str,
+    ):
+        return False
+
+    if not perturbed_url:
+        return False
+
+    if perturbed_url == original_url:
+        return False
+
+    # --------------------------------------------------------
+    # Root-domain preservation
+    # --------------------------------------------------------
+
+    original_root = extract_root_domain(
+        original_url
+    )
+
+    perturbed_root = extract_root_domain(
+        perturbed_url
+    )
+
+    if perturbation_name != "add_suspicious_subdomain":
+
+        if original_root != perturbed_root:
+
+            raise ValueError(
+                f"Root domain changed unexpectedly "
+                f"for perturbation '{perturbation_name}': "
+                f"{original_root} -> {perturbed_root}"
+            )
+
+    else:
+
+        if original_root != perturbed_root:
+
+            raise ValueError(
+                "Suspicious-subdomain perturbation "
+                "did not preserve root domain."
+            )
+
+    return True
+
+
+# ============================================================
+# MODEL PREDICTION
 # ============================================================
 
 def predict_features(
     model,
     feature_df,
 ):
-
-    """
-    Predict using a pandas DataFrame containing
-    the original FEATURE_NAMES.
-
-    This prevents the sklearn warning:
-
-    X does not have valid feature names...
-    """
 
     predictions = model.predict(
         feature_df
@@ -495,7 +672,10 @@ def predict_features(
         feature_df
     )[:, 1]
 
-    return predictions, probabilities
+    return (
+        predictions,
+        probabilities,
+    )
 
 
 # ============================================================
@@ -507,6 +687,21 @@ def calculate_metrics(
     y_pred,
     y_probability,
 ):
+
+    unique_classes = np.unique(
+        y_true
+    )
+
+    if len(unique_classes) < 2:
+
+        roc_auc = np.nan
+
+    else:
+
+        roc_auc = roc_auc_score(
+            y_true,
+            y_probability,
+        )
 
     return {
 
@@ -538,11 +733,35 @@ def calculate_metrics(
             ),
 
         "roc_auc":
-            roc_auc_score(
-                y_true,
-                y_probability,
-            ),
+            roc_auc,
     }
+
+
+# ============================================================
+# METRIC PRINTING
+# ============================================================
+
+def print_metrics(
+    title,
+    metrics,
+):
+
+    print(f"\n{title}:")
+
+    for metric, value in metrics.items():
+
+        if pd.isna(value):
+
+            display_value = "N/A"
+
+        else:
+
+            display_value = f"{value:.4f}"
+
+        print(
+            f"{metric.upper():<10}: "
+            f"{display_value}"
+        )
 
 
 # ============================================================
@@ -564,12 +783,12 @@ def evaluate_robustness(
     )
     print("=" * 60)
 
-    # --------------------------------------------------------
-    # Baseline
-    # --------------------------------------------------------
+    # ========================================================
+    # BASELINE
+    # ========================================================
 
-    baseline_features = (
-        create_feature_dataframe(urls)
+    baseline_features = create_feature_dataframe(
+        urls
     )
 
     baseline_predictions, baseline_probabilities = (
@@ -585,20 +804,36 @@ def evaluate_robustness(
         baseline_probabilities,
     )
 
-    print("\nBaseline performance:")
+    print_metrics(
+        "Baseline performance",
+        baseline_metrics,
+    )
 
-    for metric, value in baseline_metrics.items():
+    print(
+        "\nBaseline class distribution:"
+    )
+
+    baseline_class_counts = pd.Series(
+        labels
+    ).value_counts().sort_index()
+
+    for class_value, count in (
+        baseline_class_counts.items()
+    ):
 
         print(
-            f"{metric.upper():<10}: "
-            f"{value:.4f}"
+            f"Class {class_value}: {count}"
         )
 
-    # --------------------------------------------------------
-    # Perturbation tests
-    # --------------------------------------------------------
+    # ========================================================
+    # PERTURBATIONS
+    # ========================================================
 
     all_results = []
+
+    flip_matrix = pd.DataFrame(
+        index=range(len(urls))
+    )
 
     for (
         perturbation_name,
@@ -613,24 +848,36 @@ def evaluate_robustness(
         )
         print("-" * 60)
 
+        valid_original_urls = []
         test_urls = []
         test_labels = []
+        original_indices = []
 
         # ----------------------------------------------------
-        # Generate valid perturbations
+        # Generate perturbations
         # ----------------------------------------------------
 
-        for url, label in zip(
-            urls,
-            labels,
+        for index, (
+            url,
+            label
+        ) in enumerate(
+            zip(urls, labels)
         ):
 
             perturbed_url = (
                 perturbation_function(url)
             )
 
-            if perturbed_url is None:
+            if not validate_perturbation(
+                url,
+                perturbed_url,
+                perturbation_name,
+            ):
                 continue
+
+            valid_original_urls.append(
+                url
+            )
 
             test_urls.append(
                 perturbed_url
@@ -638,6 +885,10 @@ def evaluate_robustness(
 
             test_labels.append(
                 label
+            )
+
+            original_indices.append(
+                index
             )
 
         if not test_urls:
@@ -649,21 +900,54 @@ def evaluate_robustness(
 
             continue
 
+        test_labels = np.asarray(
+            test_labels
+        )
+
         # ----------------------------------------------------
-        # Baseline predictions for the corresponding
-        # original URLs
+        # Class distribution
+        # ----------------------------------------------------
+
+        class_counts = (
+            pd.Series(
+                test_labels
+            )
+            .value_counts()
+            .sort_index()
+        )
+
+        print(
+            f"Tests: {len(test_urls)}"
+        )
+
+        print(
+            "Class distribution:"
+        )
+
+        for class_value, count in (
+            class_counts.items()
+        ):
+
+            print(
+                f"  Class {class_value}: "
+                f"{count}"
+            )
+
+        if len(class_counts) < 2:
+
+            print(
+                "NOTE: ROC-AUC is undefined "
+                "because this test subset contains "
+                "only one class."
+            )
+
+        # ----------------------------------------------------
+        # Original subset predictions
         # ----------------------------------------------------
 
         original_features = (
             create_feature_dataframe(
-                [
-                    urls[i]
-                    for i, url in enumerate(urls)
-                    if (
-                        perturbation_function(url)
-                        is not None
-                    )
-                ]
+                valid_original_urls
             )
         )
 
@@ -676,7 +960,19 @@ def evaluate_robustness(
         )
 
         # ----------------------------------------------------
-        # Perturbed features
+        # Original subset metrics
+        # ----------------------------------------------------
+
+        original_subset_metrics = (
+            calculate_metrics(
+                test_labels,
+                original_predictions,
+                original_probabilities,
+            )
+        )
+
+        # ----------------------------------------------------
+        # Perturbed predictions
         # ----------------------------------------------------
 
         perturbed_features = (
@@ -693,13 +989,21 @@ def evaluate_robustness(
             perturbed_features,
         )
 
-        test_labels = pd.Series(
-            test_labels
-        ).to_numpy()
+        # ----------------------------------------------------
+        # Perturbed metrics
+        # ----------------------------------------------------
 
-        # ----------------------------------------------------
-        # Correctness
-        # ----------------------------------------------------
+        perturbed_metrics = (
+            calculate_metrics(
+                test_labels,
+                perturbed_predictions,
+                perturbed_probabilities,
+            )
+        )
+
+        # ====================================================
+        # PREDICTION CHANGE ANALYSIS
+        # ====================================================
 
         original_correct = (
             original_predictions
@@ -726,16 +1030,6 @@ def evaluate_robustness(
             & perturbed_correct
         )
 
-        # ----------------------------------------------------
-        # Metrics
-        # ----------------------------------------------------
-
-        perturbed_metrics = calculate_metrics(
-            test_labels,
-            perturbed_predictions,
-            perturbed_probabilities,
-        )
-
         prediction_change_rate = (
             prediction_changed.mean()
         )
@@ -748,6 +1042,10 @@ def evaluate_robustness(
             incorrect_to_correct.mean()
         )
 
+        # ====================================================
+        # PROBABILITY ANALYSIS
+        # ====================================================
+
         probability_change = (
             perturbed_probabilities
             - original_probabilities
@@ -758,29 +1056,38 @@ def evaluate_robustness(
         )
 
         mean_absolute_probability_change = (
-            abs(
+            np.abs(
                 probability_change
             ).mean()
         )
 
+        # ====================================================
+        # CORRECT DEGRADATION
+        # ====================================================
+
         accuracy_degradation = (
-            baseline_metrics["accuracy"]
-            - perturbed_metrics["accuracy"]
+            original_subset_metrics[
+                "accuracy"
+            ]
+            -
+            perturbed_metrics[
+                "accuracy"
+            ]
         )
 
         f1_degradation = (
-            baseline_metrics["f1"]
-            - perturbed_metrics["f1"]
+            original_subset_metrics[
+                "f1"
+            ]
+            -
+            perturbed_metrics[
+                "f1"
+            ]
         )
 
-        # ----------------------------------------------------
-        # Print
-        # ----------------------------------------------------
-
-        print(
-            f"Tests: "
-            f"{len(test_urls)}"
-        )
+        # ====================================================
+        # PRINT RESULTS
+        # ====================================================
 
         print(
             f"Prediction change rate: "
@@ -817,18 +1124,36 @@ def evaluate_robustness(
             f"{f1_degradation:.4f}"
         )
 
-        print("\nPerturbed metrics:")
+        print_metrics(
+            "Original subset performance",
+            original_subset_metrics,
+        )
 
-        for metric, value in perturbed_metrics.items():
+        print_metrics(
+            "Perturbed performance",
+            perturbed_metrics,
+        )
 
-            print(
-                f"{metric.upper():<10}: "
-                f"{value:.4f}"
+        # ====================================================
+        # STORE FLIP INFORMATION
+        # ====================================================
+
+        for local_index, original_index in enumerate(
+            original_indices
+        ):
+
+            flip_matrix.loc[
+                original_index,
+                perturbation_name
+            ] = int(
+                prediction_changed[
+                    local_index
+                ]
             )
 
-        # ----------------------------------------------------
-        # Save results
-        # ----------------------------------------------------
+        # ====================================================
+        # SAVE RESULT
+        # ====================================================
 
         all_results.append({
 
@@ -837,6 +1162,22 @@ def evaluate_robustness(
 
             "tests":
                 len(test_urls),
+
+            "class_0":
+                int(
+                    class_counts.get(
+                        0,
+                        0
+                    )
+                ),
+
+            "class_1":
+                int(
+                    class_counts.get(
+                        1,
+                        0
+                    )
+                ),
 
             "prediction_change_rate":
                 prediction_change_rate,
@@ -859,20 +1200,55 @@ def evaluate_robustness(
             "f1_degradation":
                 f1_degradation,
 
+            "original_accuracy":
+                original_subset_metrics[
+                    "accuracy"
+                ],
+
+            "original_precision":
+                original_subset_metrics[
+                    "precision"
+                ],
+
+            "original_recall":
+                original_subset_metrics[
+                    "recall"
+                ],
+
+            "original_f1":
+                original_subset_metrics[
+                    "f1"
+                ],
+
+            "original_roc_auc":
+                original_subset_metrics[
+                    "roc_auc"
+                ],
+
             "accuracy":
-                perturbed_metrics["accuracy"],
+                perturbed_metrics[
+                    "accuracy"
+                ],
 
             "precision":
-                perturbed_metrics["precision"],
+                perturbed_metrics[
+                    "precision"
+                ],
 
             "recall":
-                perturbed_metrics["recall"],
+                perturbed_metrics[
+                    "recall"
+                ],
 
             "f1":
-                perturbed_metrics["f1"],
+                perturbed_metrics[
+                    "f1"
+                ],
 
             "roc_auc":
-                perturbed_metrics["roc_auc"],
+                perturbed_metrics[
+                    "roc_auc"
+                ],
         })
 
     # ========================================================
@@ -897,7 +1273,7 @@ def evaluate_robustness(
             "No robustness results available."
         )
 
-        return results_df
+        return results_df, flip_matrix
 
     print(
         results_df.to_string(
@@ -905,7 +1281,174 @@ def evaluate_robustness(
         )
     )
 
-    return results_df
+    # ========================================================
+    # FLIP OVERLAP DIAGNOSTIC
+    # ========================================================
+
+    print("\n")
+    print("=" * 60)
+    print(
+        f"{model_name.upper()} - "
+        "PERTURBATION FLIP DIAGNOSTIC"
+    )
+    print("=" * 60)
+
+    if not flip_matrix.empty:
+
+        flip_matrix = (
+            flip_matrix
+            .fillna(0)
+            .astype(int)
+        )
+
+        flip_counts = (
+            flip_matrix.sum(
+                axis=1
+            )
+        )
+
+        print(
+            "URLs changed by multiple "
+            "perturbations:"
+        )
+
+        for count in sorted(
+            flip_counts.unique()
+        ):
+
+            number_of_urls = (
+                flip_counts == count
+            ).sum()
+
+            print(
+                f"  {count} perturbations: "
+                f"{number_of_urls} URLs"
+            )
+
+        print(
+            "\nPairwise perturbation "
+            "flip overlap:"
+        )
+
+        perturbation_names = list(
+            flip_matrix.columns
+        )
+
+        for i in range(
+            len(perturbation_names)
+        ):
+
+            for j in range(
+                i + 1,
+                len(perturbation_names)
+            ):
+
+                first = (
+                    perturbation_names[i]
+                )
+
+                second = (
+                    perturbation_names[j]
+                )
+
+                both_flipped = (
+                    (
+                        flip_matrix[first]
+                        == 1
+                    )
+                    &
+                    (
+                        flip_matrix[second]
+                        == 1
+                    )
+                ).sum()
+
+                print(
+                    f"  {first} + {second}: "
+                    f"{both_flipped} URLs"
+                )
+
+    return (
+        results_df,
+        flip_matrix,
+    )
+
+
+# ============================================================
+# SAVE RESULTS
+# ============================================================
+
+def save_results(
+    logistic_results,
+    random_forest_results,
+):
+
+    combined_results = []
+
+    if not logistic_results.empty:
+
+        logistic_copy = (
+            logistic_results.copy()
+        )
+
+        logistic_copy.insert(
+            0,
+            "model",
+            "Logistic Regression",
+        )
+
+        combined_results.append(
+            logistic_copy
+        )
+
+    if not random_forest_results.empty:
+
+        random_forest_copy = (
+            random_forest_results.copy()
+        )
+
+        random_forest_copy.insert(
+            0,
+            "model",
+            "Random Forest",
+        )
+
+        combined_results.append(
+            random_forest_copy
+        )
+
+    if not combined_results:
+
+        print(
+            "\nNo robustness results "
+            "to save."
+        )
+
+        return
+
+    combined_df = pd.concat(
+        combined_results,
+        ignore_index=True,
+    )
+
+    combined_df.to_csv(
+        ROBUSTNESS_RESULTS_FILE,
+        index=False,
+    )
+
+    print("\n")
+    print("=" * 60)
+    print("RESULTS SAVED")
+    print("=" * 60)
+
+    print(
+        f"File: "
+        f"{ROBUSTNESS_RESULTS_FILE}"
+    )
+
+    print(
+        f"Rows: {len(combined_df)}"
+    )
 
 
 # ============================================================
@@ -921,9 +1464,9 @@ def main():
     )
     print("=" * 60)
 
-    # --------------------------------------------------------
-    # Load data
-    # --------------------------------------------------------
+    # ========================================================
+    # LOAD DATA
+    # ========================================================
 
     feature_df = load_feature_dataset()
 
@@ -934,9 +1477,9 @@ def main():
         url_df,
     )
 
-    # --------------------------------------------------------
-    # Create unseen-root-domain holdout
-    # --------------------------------------------------------
+    # ========================================================
+    # CREATE UNSEEN-ROOT-DOMAIN HOLDOUT
+    # ========================================================
 
     (
         train_indices,
@@ -946,39 +1489,67 @@ def main():
         url_df
     )
 
-    # --------------------------------------------------------
-    # Prepare training data
-    # --------------------------------------------------------
+    # ========================================================
+    # TRAINING DATA
+    # ========================================================
 
-    X_train = feature_df[
-        FEATURE_NAMES
-    ].iloc[
-        train_indices
-    ]
+    X_train = (
+        feature_df[
+            FEATURE_NAMES
+        ]
+        .iloc[
+            train_indices
+        ]
+        .copy()
+    )
 
-    y_train = feature_df[
-        "label"
-    ].iloc[
-        train_indices
-    ]
-
-    # --------------------------------------------------------
-    # Prepare robustness test data
-    # --------------------------------------------------------
-
-    robustness_url_df = (
-        url_df.iloc[
-            test_indices
-        ].copy()
+    y_train = (
+        feature_df[
+            "label"
+        ]
+        .iloc[
+            train_indices
+        ]
+        .copy()
     )
 
     # --------------------------------------------------------
-    # Sample 200 URLs
+    # Feature schema validation
     # --------------------------------------------------------
 
+    if list(
+        X_train.columns
+    ) != FEATURE_NAMES:
+
+        raise ValueError(
+            "Training feature schema does not "
+            "match FEATURE_NAMES."
+        )
+
+    print(
+        "\nPASS: Training feature schema "
+        "matches FEATURE_NAMES."
+    )
+
+    # ========================================================
+    # ROBUSTNESS TEST DATA
+    # ========================================================
+
+    robustness_url_df = (
+        url_df
+        .iloc[
+            test_indices
+        ]
+        .copy()
+    )
+
+    # ========================================================
+    # SAMPLE
+    # ========================================================
+
     sample_size = min(
-        200,
-        len(robustness_url_df)
+        ROBUSTNESS_SAMPLE_SIZE,
+        len(robustness_url_df),
     )
 
     robustness_sample = (
@@ -997,21 +1568,48 @@ def main():
         f"{len(robustness_sample)}"
     )
 
+    # --------------------------------------------------------
+    # Sample class validation
+    # --------------------------------------------------------
+
+    sample_classes = (
+        robustness_sample[
+            "label"
+        ]
+        .value_counts()
+        .sort_index()
+    )
+
+    if len(sample_classes) < 2:
+
+        raise ValueError(
+            "Robustness sample contains only "
+            "one class. Both classes are required "
+            "for the primary robustness evaluation."
+        )
+
+    print(
+        "PASS: Robustness sample contains "
+        "both classes."
+    )
+
     urls = (
         robustness_sample[
             "URL"
-        ].tolist()
+        ]
+        .tolist()
     )
 
     labels = (
         robustness_sample[
             "label"
-        ].to_numpy()
+        ]
+        .to_numpy()
     )
 
-    # --------------------------------------------------------
-    # Logistic Regression
-    # --------------------------------------------------------
+    # ========================================================
+    # LOGISTIC REGRESSION
+    # ========================================================
 
     print(
         "\nTraining Logistic Regression..."
@@ -1031,9 +1629,9 @@ def main():
         "completed."
     )
 
-    # --------------------------------------------------------
-    # Random Forest
-    # --------------------------------------------------------
+    # ========================================================
+    # RANDOM FOREST
+    # ========================================================
 
     print(
         "\nTraining Random Forest..."
@@ -1053,23 +1651,46 @@ def main():
         "completed."
     )
 
-    # --------------------------------------------------------
-    # Evaluate
-    # --------------------------------------------------------
+    # ========================================================
+    # LOGISTIC ROBUSTNESS
+    # ========================================================
 
-    evaluate_robustness(
+    (
+        logistic_results,
+        logistic_flip_matrix,
+    ) = evaluate_robustness(
         "Logistic Regression",
         logistic_model,
         urls,
         labels,
     )
 
-    evaluate_robustness(
+    # ========================================================
+    # RANDOM FOREST ROBUSTNESS
+    # ========================================================
+
+    (
+        random_forest_results,
+        random_forest_flip_matrix,
+    ) = evaluate_robustness(
         "Random Forest",
         random_forest_model,
         urls,
         labels,
     )
+
+    # ========================================================
+    # SAVE RESULTS
+    # ========================================================
+
+    save_results(
+        logistic_results,
+        random_forest_results,
+    )
+
+    # ========================================================
+    # COMPLETE
+    # ========================================================
 
     print("\n")
     print("=" * 60)
