@@ -1,6 +1,6 @@
 import pandas as pd
-import numpy as np
 import tldextract
+import numpy as np
 
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
@@ -80,6 +80,10 @@ def verify_alignment(feature_df, url_df):
 
     print("\nVerifying dataset alignment...")
 
+    # --------------------------------------------------------
+    # Row count
+    # --------------------------------------------------------
+
     if len(feature_df) != len(url_df):
 
         raise ValueError(
@@ -88,6 +92,10 @@ def verify_alignment(feature_df, url_df):
         )
 
     print("PASS: Row counts match.")
+
+    # --------------------------------------------------------
+    # Label alignment
+    # --------------------------------------------------------
 
     if not feature_df["label"].equals(
         url_df["label"]
@@ -104,6 +112,10 @@ def verify_alignment(feature_df, url_df):
         )
 
     print("PASS: Labels are aligned row-by-row.")
+
+    # --------------------------------------------------------
+    # URL availability
+    # --------------------------------------------------------
 
     if "URL" not in url_df.columns:
 
@@ -265,7 +277,11 @@ def extract_features_from_url(url):
             len(url_string),
 
         "https":
-            int(url_string.lower().startswith("https://")),
+            int(
+                url_string.lower().startswith(
+                    "https://"
+                )
+            ),
 
         "domain_length":
             len(domain_full),
@@ -325,18 +341,35 @@ def create_feature_vector(url):
 
     features = extract_features_from_url(url)
 
-    vector = []
+    vector = {}
 
     for feature_name in FEATURE_NAMES:
 
-        vector.append(
-            features.get(
-                feature_name,
-                0
-            )
+        vector[feature_name] = features.get(
+            feature_name,
+            0
         )
 
     return vector
+
+
+def create_feature_dataframe(urls):
+
+    """
+    Convert URLs into a pandas DataFrame using
+    exactly the same feature names and order
+    used during model training.
+    """
+
+    feature_rows = [
+        create_feature_vector(url)
+        for url in urls
+    ]
+
+    return pd.DataFrame(
+        feature_rows,
+        columns=FEATURE_NAMES,
+    )
 
 
 # ============================================================
@@ -354,6 +387,7 @@ def add_https(url):
         return None
 
     if url.lower().startswith("http://"):
+
         return (
             "https://"
             + url[7:]
@@ -369,7 +403,11 @@ def add_special_characters(url):
 
 def add_suspicious_query(url):
 
-    separator = "&" if "?" in url else "?"
+    separator = (
+        "&"
+        if "?" in url
+        else "?"
+    )
 
     return (
         url
@@ -401,7 +439,10 @@ def remove_https(url):
 
     if url.lower().startswith("https://"):
 
-        return "http://" + url[8:]
+        return (
+            "http://"
+            + url[8:]
+        )
 
     return None
 
@@ -426,6 +467,35 @@ PERTURBATIONS = {
     "remove_https":
         remove_https,
 }
+
+
+# ============================================================
+# MODEL PREDICTION HELPER
+# ============================================================
+
+def predict_features(
+    model,
+    feature_df,
+):
+
+    """
+    Predict using a pandas DataFrame containing
+    the original FEATURE_NAMES.
+
+    This prevents the sklearn warning:
+
+    X does not have valid feature names...
+    """
+
+    predictions = model.predict(
+        feature_df
+    )
+
+    probabilities = model.predict_proba(
+        feature_df
+    )[:, 1]
+
+    return predictions, probabilities
 
 
 # ============================================================
@@ -489,7 +559,8 @@ def evaluate_robustness(
     print("\n")
     print("=" * 60)
     print(
-        f"ROBUSTNESS TEST - {model_name.upper()}"
+        f"ROBUSTNESS TEST - "
+        f"{model_name.upper()}"
     )
     print("=" * 60)
 
@@ -497,19 +568,15 @@ def evaluate_robustness(
     # Baseline
     # --------------------------------------------------------
 
-    baseline_features = np.array([
-        create_feature_vector(url)
-        for url in urls
-    ])
-
-    baseline_predictions = model.predict(
-        baseline_features
+    baseline_features = (
+        create_feature_dataframe(urls)
     )
 
-    baseline_probabilities = (
-        model.predict_proba(
-            baseline_features
-        )[:, 1]
+    baseline_predictions, baseline_probabilities = (
+        predict_features(
+            model,
+            baseline_features,
+        )
     )
 
     baseline_metrics = calculate_metrics(
@@ -533,7 +600,10 @@ def evaluate_robustness(
 
     all_results = []
 
-    for perturbation_name, perturbation_function in PERTURBATIONS.items():
+    for (
+        perturbation_name,
+        perturbation_function
+    ) in PERTURBATIONS.items():
 
         print("\n")
         print("-" * 60)
@@ -545,8 +615,6 @@ def evaluate_robustness(
 
         test_urls = []
         test_labels = []
-        original_predictions = []
-        original_probabilities = []
 
         # ----------------------------------------------------
         # Generate valid perturbations
@@ -557,8 +625,8 @@ def evaluate_robustness(
             labels,
         ):
 
-            perturbed_url = perturbation_function(
-                url
+            perturbed_url = (
+                perturbation_function(url)
             )
 
             if perturbed_url is None:
@@ -572,22 +640,6 @@ def evaluate_robustness(
                 label
             )
 
-            original_predictions.append(
-                model.predict(
-                    np.array([
-                        create_feature_vector(url)
-                    ])
-                )[0]
-            )
-
-            original_probabilities.append(
-                model.predict_proba(
-                    np.array([
-                        create_feature_vector(url)
-                    ])
-                )[0, 1]
-            )
-
         if not test_urls:
 
             print(
@@ -598,35 +650,52 @@ def evaluate_robustness(
             continue
 
         # ----------------------------------------------------
-        # Extract perturbed features
+        # Baseline predictions for the corresponding
+        # original URLs
         # ----------------------------------------------------
 
-        perturbed_features = np.array([
-            create_feature_vector(url)
-            for url in test_urls
-        ])
-
-        perturbed_predictions = model.predict(
-            perturbed_features
+        original_features = (
+            create_feature_dataframe(
+                [
+                    urls[i]
+                    for i, url in enumerate(urls)
+                    if (
+                        perturbation_function(url)
+                        is not None
+                    )
+                ]
+            )
         )
 
-        perturbed_probabilities = (
-            model.predict_proba(
-                perturbed_features
-            )[:, 1]
+        (
+            original_predictions,
+            original_probabilities,
+        ) = predict_features(
+            model,
+            original_features,
         )
 
-        test_labels = np.array(
+        # ----------------------------------------------------
+        # Perturbed features
+        # ----------------------------------------------------
+
+        perturbed_features = (
+            create_feature_dataframe(
+                test_urls
+            )
+        )
+
+        (
+            perturbed_predictions,
+            perturbed_probabilities,
+        ) = predict_features(
+            model,
+            perturbed_features,
+        )
+
+        test_labels = pd.Series(
             test_labels
-        )
-
-        original_predictions = np.array(
-            original_predictions
-        )
-
-        original_probabilities = np.array(
-            original_probabilities
-        )
+        ).to_numpy()
 
         # ----------------------------------------------------
         # Correctness
@@ -689,7 +758,7 @@ def evaluate_robustness(
         )
 
         mean_absolute_probability_change = (
-            np.abs(
+            abs(
                 probability_change
             ).mean()
         )
@@ -847,7 +916,8 @@ def main():
 
     print("=" * 60)
     print(
-        "QR Phishing Detection - Robustness Testing"
+        "QR Phishing Detection - "
+        "Robustness Testing"
     )
     print("=" * 60)
 
@@ -882,19 +952,25 @@ def main():
 
     X_train = feature_df[
         FEATURE_NAMES
-    ].iloc[train_indices]
+    ].iloc[
+        train_indices
+    ]
 
     y_train = feature_df[
         "label"
-    ].iloc[train_indices]
+    ].iloc[
+        train_indices
+    ]
 
     # --------------------------------------------------------
     # Prepare robustness test data
     # --------------------------------------------------------
 
-    robustness_url_df = url_df.iloc[
-        test_indices
-    ].copy()
+    robustness_url_df = (
+        url_df.iloc[
+            test_indices
+        ].copy()
+    )
 
     # --------------------------------------------------------
     # Sample 200 URLs
@@ -911,7 +987,9 @@ def main():
             n=sample_size,
             random_state=RANDOM_STATE,
         )
-        .reset_index(drop=True)
+        .reset_index(
+            drop=True
+        )
     )
 
     print(
@@ -920,13 +998,15 @@ def main():
     )
 
     urls = (
-        robustness_sample["URL"]
-        .tolist()
+        robustness_sample[
+            "URL"
+        ].tolist()
     )
 
     labels = (
-        robustness_sample["label"]
-        .to_numpy()
+        robustness_sample[
+            "label"
+        ].to_numpy()
     )
 
     # --------------------------------------------------------
