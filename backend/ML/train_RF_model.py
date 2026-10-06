@@ -1,4 +1,5 @@
 import pandas as pd
+import joblib
 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -10,6 +11,8 @@ from ml.config import (
     RANDOM_STATE,
 )
 
+# Set model target save path 
+MODEL_SAVE_PATH = "models/random_forest_model.joblib"
 
 def main():
 
@@ -31,6 +34,7 @@ def main():
         y_train,
     )
 
+    save_model(random_forest_model, MODEL_SAVE_PATH)
 
 def load_dataset():
 
@@ -95,6 +99,10 @@ def train_random_forest(X_train, y_train):
 
     return model
 
+def save_model(model, filepath):
+    print(f"\nSaving trained model to {filepath}...") 
+    joblib.dump(model, filepath) 
+    print("Model saved successfully.")
 
 if __name__ == "__main__":
     main()
