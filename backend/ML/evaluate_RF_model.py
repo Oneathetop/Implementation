@@ -116,49 +116,63 @@ def evaluate_random_forest(model, X_test, y_test):
 
     print("\nEvaluating Random Forest...")
 
+    #//////////////////////////////
     y_pred = model.predict(X_test)
 
-    y_probability = model.predict_proba(X_test)[:, 1]
+    # Class 0 = phishing; class 1 = legitimate
+    phishing_probability = model.predict_proba(X_test)[
+        :, list(model.classes_).index(0)
+    ]
 
     accuracy = accuracy_score(y_test, y_pred)
 
     precision = precision_score(
         y_test,
         y_pred,
+        pos_label=0,
         zero_division=0,
     )
 
     recall = recall_score(
         y_test,
         y_pred,
+        pos_label=0,
         zero_division=0,
     )
 
     f1 = f1_score(
         y_test,
         y_pred,
+        pos_label=0,
         zero_division=0,
     )
 
+    # Convert phishing (label 0) to the positive class for ROC-AUC
+    phishing_actual = (y_test == 0).astype(int)
+
     roc_auc = roc_auc_score(
-        y_test,
-        y_probability,
+        phishing_actual,
+        phishing_probability,
     )
 
     matrix = confusion_matrix(
         y_test,
         y_pred,
+        labels=[0, 1],
     )
 
     report = classification_report(
         y_test,
         y_pred,
+        labels=[0, 1],
         target_names=[
-            "Legitimate",
-            "Phishing",
+            "Phishing (0)",
+            "Legitimate (1)",
         ],
         zero_division=0,
     )
+
+    #//////////////////////////////
 
     print("\n")
     print("=" * 60)
@@ -172,6 +186,8 @@ def evaluate_random_forest(model, X_test, y_test):
     print(f"ROC-AUC  : {roc_auc:.4f}")
 
     print("\nConfusion Matrix:")
+    print("Rows = actual [Phishing, Legitimate]")
+    print("Columns = predicted [Phishing, Legitimate]")
     print(matrix)
 
     print("\nClassification Report:")

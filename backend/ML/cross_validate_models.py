@@ -6,6 +6,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 
+from sklearn.metrics import (
+    make_scorer,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+)
+
 from ml.config import (
     FEATURE_DATASET,
     FEATURE_NAMES,
@@ -131,6 +139,19 @@ def prepare_data(df):
 
     return X, y
 
+def phishing_roc_auc(estimator, X, y):
+    phishing_index = list(estimator.classes_).index(0)
+
+    phishing_probability = estimator.predict_proba(X)[
+        :, phishing_index
+    ]
+
+    phishing_actual = (y == 0).astype(int)
+
+    return roc_auc_score(
+        phishing_actual,
+        phishing_probability,
+    )
 
 def evaluate_model(
     model_name,
@@ -147,10 +168,22 @@ def evaluate_model(
 
     scoring = {
         "accuracy": "accuracy",
-        "precision": "precision",
-        "recall": "recall",
-        "f1": "f1",
-        "roc_auc": "roc_auc",
+        "precision": make_scorer(
+            precision_score,
+            pos_label=0,
+            zero_division=0,
+        ),
+        "recall": make_scorer(
+            recall_score,
+            pos_label=0,
+            zero_division=0,
+        ),
+        "f1": make_scorer(
+            f1_score,
+            pos_label=0,
+            zero_division=0,
+        ),
+        "roc_auc": phishing_roc_auc,
     }
 
     results = cross_validate(
