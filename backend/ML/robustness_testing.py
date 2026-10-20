@@ -663,14 +663,13 @@ def predict_features(
     model,
     feature_df,
 ):
+    predictions = model.predict(feature_df)
 
-    predictions = model.predict(
-        feature_df
-    )
+    phishing_index = list(model.classes_).index(0)
 
     probabilities = model.predict_proba(
         feature_df
-    )[:, 1]
+    )[:, phishing_index]
 
     return (
         predictions,
@@ -718,19 +717,19 @@ def calculate_metrics(
                 zero_division=0,
             ),
 
-        "recall":
-            recall_score(
-                y_true,
-                y_pred,
-                zero_division=0,
-            ),
+        "recall": recall_score(
+            y_true,
+            y_pred,
+            pos_label=0,
+            zero_division=0,
+        ),
 
-        "f1":
-            f1_score(
-                y_true,
-                y_pred,
-                zero_division=0,
-            ),
+        "f1": f1_score(
+            y_true,
+            y_pred,
+            pos_label=0,
+            zero_division=0,
+        ),
 
         "roc_auc":
             roc_auc,
