@@ -43,7 +43,7 @@ SUSPICIOUS_KEYWORDS = {
     "tracking",
 
     "support",
-    "customer"
+    "customer",
     "qr",
     "scan",
     "crypto",
