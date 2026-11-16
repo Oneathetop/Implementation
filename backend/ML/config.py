@@ -21,6 +21,10 @@ CLEAN_DATASET = DATASET_PROCESSED / "clean_urls.csv"
 
 FEATURE_DATASET = DATASET_PROCESSED / "feature_dataset.csv"
 
+CURATED_DATASET = DATASET_RAW / "curated_urls.csv"
+
+HOLDOUT_DATASET = DATASET_RAW / "holdout_urls.csv"
+
 # --------------------------------------------------
 # ML Parameters
 

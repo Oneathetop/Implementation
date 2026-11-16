@@ -1,0 +1,14 @@
+URL,label,source
+https://docs.google.com/forms/d/e/1FAIpQLSc4isK7rBh-8Sb_aMbOM3a3SJovJA35fBvmbDlpYBRIgPtpQA/viewform?usp=header,1,legitimate hard negative
+https://www.youtube.com/watch?v=2dFdEvLOHjU,1,legitimate hard negative
+https://www.google.com/search?q=phishing+awareness,1,legitimate hard negative
+https://accounts.google.com/signin/v2/identifier,1,legitimate hard negative
+https://support.microsoft.com/en-us,1,legitimate hard negative
+https://www.apple.com/support/,1,legitimate hard negative
+https://www.python.org/downloads/,1,legitimate complex URL
+https://www.nasa.gov/missions/,1,legitimate complex URL
+https://facebok-login.com,0,synthetic brand lookalike
+https://paypal-security-check.example.net/login?session=984321&verify=1,0,synthetic phishing pattern
+http://198.51.100.24/secure/login.php?account=verify,0,synthetic phishing pattern
+https://login-microsoft-support.example.org/update-password,0,synthetic phishing pattern
+https://google.com.attacker.example/login,0,synthetic deceptive domain

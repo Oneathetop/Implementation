@@ -6,7 +6,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 const String apiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.1.2:8000',
+  defaultValue: 'http://192.168.1.3:8000',
 );
 
 void main() {

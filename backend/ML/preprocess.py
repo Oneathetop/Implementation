@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ml.config import RAW_DATASET, CLEAN_DATASET
+from ml.config import CURATED_DATASET, RAW_DATASET, CLEAN_DATASET
 
 
 def load_dataset():
@@ -11,6 +11,11 @@ def load_dataset():
     print("\nLoading dataset...")
 
     df = pd.read_excel(RAW_DATASET)
+
+    if CURATED_DATASET.exists():
+        curated_df = pd.read_csv(CURATED_DATASET)
+        df = pd.concat([df, curated_df], ignore_index=True)
+        print(f"Curated rows added: {len(curated_df)}")
 
     print("Dataset loaded successfully.")
     print(f"Rows: {len(df)}")
