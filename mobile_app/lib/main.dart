@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 const String apiBaseUrl = String.fromEnvironment(
@@ -101,6 +102,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _urlController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
 
   bool _isLoading = false;
 
@@ -113,6 +115,70 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     await _submitUrl(url);
+  }
+
+  Future<void> _uploadQrImage() async {
+    if (_isLoading) {
+      return;
+    }
+
+    XFile? image;
+
+    try {
+      image = await _imagePicker.pickImage(source: ImageSource.gallery);
+    } catch (_) {
+      _showMessage('Could not open the image gallery.');
+      return;
+    }
+
+    if (image == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final scannerController = MobileScannerController(autoStart: false);
+
+    try {
+      final capture = await scannerController.analyzeImage(
+        image.path,
+        formats: const [BarcodeFormat.qrCode],
+      );
+      final qrValue = capture == null
+          ? ''
+          : capture.barcodes
+                .map((barcode) => barcode.rawValue?.trim())
+                .whereType<String>()
+                .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+
+      if (qrValue.isEmpty) {
+        _showMessage('No QR code was found in the selected image.');
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      await _submitUrl(qrValue);
+    } on ApiException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage(
+        'Could not read a QR code from this image. '
+        'Choose a clear image containing one QR code.',
+      );
+    } finally {
+      await scannerController.dispose();
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   Future<void> _submitUrl(String url) async {
@@ -209,6 +275,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: const Padding(
                   padding: EdgeInsets.symmetric(vertical: 14),
                   child: Text('Scan QR Code'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _isLoading ? null : _uploadQrImage,
+                icon: const Icon(Icons.image_outlined),
+                label: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14),
+                  child: Text('Upload QR Image'),
                 ),
               ),
               const SizedBox(height: 24),
